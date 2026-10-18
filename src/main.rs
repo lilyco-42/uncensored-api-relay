@@ -187,9 +187,12 @@ async fn forward(
             (status, out_headers, Body::from_stream(stream)).into_response()
         }
         Err(e) => {
-            // 显式构造 JSON 错误响应。直接用 (StatusCode, Json) 元组时，
-            // 连接失败路径下实测 content-length 为 0（body 被丢弃），
-            // 客户端只看到裸 502，拿不到错误原因。
+            // 上游连接失败：必须返回可读 JSON 错误体。
+            // 注意这里刻意避开 (StatusCode, Json) 元组与 Response::builder +
+            // Body::from(String)：两种写法在本项目（axum 0.7 + hyper 0.14）下
+            // 实测都被丢弃 body，客户端只看到 content-length: 0 的裸 502。
+            // 用 axum 的 IntoResponseParts 逐个写状态码与响应头，body 用 String，
+            // 由 axum 自己完成分帧，才能稳定带出 body。
             let payload = json!({
                 "error": {
                     "message": format!("relay upstream error: {}", e),
@@ -199,12 +202,12 @@ async fn forward(
             })
             .to_string();
 
-            Response::builder()
-                .status(StatusCode::BAD_GATEWAY)
-                .header("content-type", "application/json; charset=utf-8")
-                .header("connection", "close")
-                .body(Body::from(payload))
-                .unwrap_or_else(|_| StatusCode::BAD_GATEWAY.into_response())
+            let mut resp = (StatusCode::BAD_GATEWAY, payload).into_response();
+            resp.headers_mut().insert(
+                axum::http::header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json; charset=utf-8"),
+            );
+            resp
         }
     }
 }
