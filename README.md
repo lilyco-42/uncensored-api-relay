@@ -9,7 +9,7 @@
 | 协议 | OpenAI Chat Completions + Anthropic Messages + /v1/models |
 | 流式 | SSE 字节级透传，打字机效果零丢包 |
 | 交付物 | CI 产出 Windows / Linux x64 / Linux arm64 三个 release 二进制 |
-| 验证 | GitHub Actions：fmt + clippy(-D warnings) + 9 个单测，全绿才发构建 |
+| 验证 | GitHub Actions：fmt + clippy(-D warnings) + 10 个单测，全绿才发构建 |
 
 > 本机**不编译、不跑测试**。构建与验证只走 `.github/workflows/ci.yml`。
 > 运行用的二进制请从 CI Artifacts 或 Release 下载。
@@ -84,7 +84,8 @@ $env:BIND_ADDR    = "127.0.0.1:8080"
 
 请求头剔除：`host`、`accept-encoding`、`content-length`
 响应头剔除：`content-encoding`、`transfer-encoding`（reqwest 已解压，避免头声明与实不符）
-query string：**完整透传**，`/v1/chat/completions?x=1` → 上游 `/chat/completions?x=1`
+query string：**完整透传**。客户端 query 与 `UPSTREAM_URL` 自带 query 用 `&` 合并，
+上游地址带 `?` 也不会拼出非法 URL，`/v1/chat/completions?x=1` → 上游 `/chat/completions?x=1`
 
 ## 五、接入本机 cc-switch
 
@@ -158,7 +159,8 @@ CI 是唯一验证入口。`cargo test` 覆盖 8 个单测：
 | `remap_payload_without_model_is_untouched` | 无 model 字段的请求体不受影响 |
 | `remap_preserves_other_fields` | 改写模型名时不动 messages/stream/temperature |
 | `upstream_url_is_trimmed` | 上游地址尾斜杠被正确去除 |
-| `upstream_url_keeps_query_string` | query string 必须透传（修掉 drip?delay=0.5 变 404 的 bug） |
+| `upstream_url_keeps_query_string` | query string 必须透传 |
+| `upstream_url_embedded_query_is_merged_not_duplicated` | 上游自带 query 时合并而非拼出非法 URL |
 
 已在本机做过的检查（仅格式与静态检查，未编译/未跑测试）：`cargo fmt -- --check` 无 diff，
 `cargo clippy --all-targets -- -D warnings` 零告警 —— 与 CI 三项门槛一致。

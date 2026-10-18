@@ -103,10 +103,26 @@ async fn forward(
     body: &str,
     rewrite: bool,
 ) -> Response {
-    // 透传 query string，否则上游带参端点（如 /drip?delay=0.5）会 404
-    let target = match query {
-        Some(q) if !q.is_empty() => format!("{}/{}?{}", state.upstream_url, path_suffix, q),
-        _ => format!("{}/{}", state.upstream_url, path_suffix),
+    // 透传 query string，否则上游带参端点（如 /drip?delay=0.5）会 404。
+    // 同时容忍 UPSTREAM_URL 自带 query（避免拼出 "?a=1/b?c=2" 这种非法 URL）。
+    let mut base_query: Option<String> = None;
+    let mut base = state.upstream_url.as_str();
+    if let Some(pos) = base.find('?') {
+        base_query = Some(base[pos + 1..].to_string());
+        base = &base[..pos];
+    }
+
+    let merged_query = match (base_query, query) {
+        (Some(b), Some(q)) if !q.is_empty() => format!("{}&{}", b, q),
+        (Some(b), _) => b,
+        (None, Some(q)) if !q.is_empty() => q.to_string(),
+        _ => String::new(),
+    };
+
+    let target = if merged_query.is_empty() {
+        format!("{}/{}", base, path_suffix)
+    } else {
+        format!("{}/{}?{}", base, path_suffix, merged_query)
     };
 
     // body 改写（模型名映射到无审查上游 ID）
@@ -324,25 +340,67 @@ mod tests {
         assert!(payload["messages"].is_array());
     }
 
+    /// 与 forward() 中的 URL 拼接逻辑保持一致
+    fn compose(base_url: &str, suffix: &str, query: Option<&str>) -> String {
+        let mut base_query: Option<String> = None;
+        let mut base = base_url;
+        if let Some(pos) = base.find('?') {
+            base_query = Some(base[pos + 1..].to_string());
+            base = &base[..pos];
+        }
+        let merged_query = match (base_query, query) {
+            (Some(b), Some(q)) if !q.is_empty() => format!("{}&{}", b, q),
+            (Some(b), _) => b,
+            (None, Some(q)) if !q.is_empty() => q.to_string(),
+            _ => String::new(),
+        };
+        if merged_query.is_empty() {
+            format!("{}/{}", base, suffix)
+        } else {
+            format!("{}/{}?{}", base, suffix, merged_query)
+        }
+    }
+
     #[test]
     fn upstream_url_keeps_query_string() {
-        // 与 forward() 中的 URL 拼接逻辑一致：query 非空时必须透传
-        let base = "http://httpbin.org";
-        let suffix = "drip";
-        for (query, expected) in [
-            (
-                Some("delay=0.5&code=200"),
-                "http://httpbin.org/drip?delay=0.5&code=200",
+        // 客户端 query 必须透传
+        assert_eq!(
+            compose("http://httpbin.org", "drip", Some("delay=0.5&code=200")),
+            "http://httpbin.org/drip?delay=0.5&code=200"
+        );
+        // 空 query 不加问号
+        assert_eq!(
+            compose("http://httpbin.org", "drip", Some("")),
+            "http://httpbin.org/drip"
+        );
+        // 无 query 不加问号
+        assert_eq!(
+            compose("http://httpbin.org", "drip", None),
+            "http://httpbin.org/drip"
+        );
+    }
+
+    #[test]
+    fn upstream_url_embedded_query_is_merged_not_duplicated() {
+        // UPSTREAM_URL 自带 query 时不能拼出 "?a=1/drip?b=2" 这种非法 URL
+        assert_eq!(
+            compose(
+                "http://h/drip?duration=2&delay=0.5",
+                "chat/completions",
+                None
             ),
-            (Some(""), "http://httpbin.org/drip"),
-            (None, "http://httpbin.org/drip"),
-        ] {
-            let url = match query {
-                Some(q) if !q.is_empty() => format!("{}/{}?{}", base, suffix, q),
-                _ => format!("{}/{}", base, suffix),
-            };
-            assert_eq!(url, expected);
-        }
+            "http://h/drip/chat/completions?duration=2&delay=0.5"
+        );
+        // 两边都有 query 时用 & 连接
+        assert_eq!(
+            compose("http://h/x?a=1", "messages", Some("b=2")),
+            "http://h/x/messages?a=1&b=2"
+        );
+        // 上游 query 为空串（"?/suffix"）时不应产生悬挂问号
+        assert_eq!(
+            compose("http://h/x?", "messages", None),
+            "http://h/x/messages"
+        );
     }
 
     #[test]
