@@ -9,7 +9,7 @@
 | 协议 | OpenAI Chat Completions + Anthropic Messages + /v1/models |
 | 流式 | SSE 字节级透传，打字机效果零丢包 |
 | 交付物 | CI 产出 Windows / Linux x64 / Linux arm64 三个 release 二进制 |
-| 验证 | GitHub Actions：fmt + clippy(-D warnings) + 10 个单测，全绿才发构建 |
+| 验证 | GitHub Actions：fmt + clippy(-D warnings) + 11 个单测，全绿才发构建 |
 
 > 本机**不编译、不跑测试**。构建与验证只走 `.github/workflows/ci.yml`。
 > 运行用的二进制请从 CI Artifacts 或 Release 下载。
@@ -28,7 +28,6 @@
    配置模板见 [cc-switch-providers.json](cc-switch-providers.json)。
 4. **验证**：`curl http://127.0.0.1:8080/health`
 
-上游还没启动时，把 `UPSTREAM_URL` 先指向 `https://httpbin.org/anything` 即可自测全链路。
 
 ---
 
@@ -48,7 +47,7 @@ git push -u origin main
 
 | Job | 内容 | 门槛 |
 |---|---|---|
-| `test` | `cargo fmt --check` → `cargo clippy -D warnings` → `cargo test` | 8 个单测全过 |
+| `test` | `cargo fmt --check` → `cargo clippy -D warnings` → `cargo test` | 11 个单测全过 |
 | `build` | 三平台交叉编译 release | Windows / Linux x64 / Linux arm64 |
 | `release` | 打 tag 时打包 zip 并发布 Release | 仅 `v*` tag 触发 |
 
@@ -172,7 +171,7 @@ Nginx 用 `proxy_buffering off`；Caddy 用 `flush_interval -1`。
 
 ## 七、验证
 
-CI 是唯一验证入口。`cargo test` 覆盖 8 个单测：
+CI 是唯一验证入口。`cargo test` 覆盖 11 个单测：
 
 | 测试 | 验证点 |
 |---|---|
@@ -196,7 +195,7 @@ CI 是唯一验证入口。`cargo test` 覆盖 8 个单测：
 rust-api-proxy/
 ├── Cargo.toml                    # 依赖 + release 优化
 ├── Cargo.lock
-├── src/main.rs                   # 中转站全部实现（约 290 行，含 10 个单测）
+├── src/main.rs                   # 中转站全部实现（约 300 行，含 11 个单测）
 ├── start-relay.ps1               # 一键启动（自动补 PATH）
 ├── cc-switch-providers.json      # cc-switch 两家 Provider 配置
 ├── .github/workflows/ci.yml  # CI：fmt + clippy + test + 3 平台构建
@@ -231,8 +230,36 @@ Caddy/Nginx 反代并开 TLS，即可让错误体正常返回。
 
 ## 十、接入的无审查上游
 
-待填入 `UPSTREAM_URL`。按前面的调研，目标是 Kaggle TPU v5e-8 跑的
-`llmfan46/Qwen3.8-27B-Uncensored-Heretic-Native-MTP-Preserved`（bf16，~130 tok/s），
-通过 Cloudflare 隧道吐出的 `https://<tunnel>.trycloudflare.com/v1`。
+上游 = Kaggle GPU 上的 `uncensored-27b`，由 `uncensored-relay-kernel` 部署。
 
-上游启动后只需改一个环境变量重启中转站即可，代码零改动。
+| 项 | 实际值 |
+|---|---|
+| 模型 repo | `llmfan46/Qwen3.8-27B-Uncensored-Heretic-Native-MTP-Preserved-GPTQ-Int4`（GPTQ Int4，~19 GB） |
+| 服务端 | vLLM `>=0.9`，`--served-model-name uncensored-27b`，`--dtype float16`，`--quantization gptq_marlin` |
+| Kaggle 硬件 | **2 x Tesla T4 (15 GB)**，`--tensor-parallel-size 2` |
+| 起服务耗时 | ~790 s（实测） |
+| 公网出口 | cloudflared quick tunnel（每次重启 notebook 换地址） |
+| 中转站环境变量 | `UPSTREAM_URL=<tunnel>/v1` |
+
+**无审查性已验证**：三个探针（暴力小说 / 脏话对白 / 速度）全部 `refused=False`，
+模型确实不拒答；`/kaggle/working/results.json` 里有逐条回答原文。
+
+> 注：本账号分到的是 T4 而不是 TPU v5e-8，所以走 GPTQ Int4 + gptq_marlin，
+> 而不是 bf16 + Pallas。这是账号配额决定的，不影响"无审查 + 公网 OpenAI 端点"这两个目标。
+
+### 每次跑完要做的两件事
+
+1. 从 kernel 输出拿新地址：
+
+```bash
+python -m kaggle kernels output lilyco4242/uncensored-relay   # 下载 endpoint.txt / relay.env
+```
+
+2. 更新 `UPSTREAM_URL` 后重启中转站（代码零改动）：
+
+```powershell
+$env:UPSTREAM_URL = "https://<新-tunnel-id>.trycloudflare.com/v1"
+.\uncensored-proxy.exe
+```
+
+跑一遍 `verify-kaggle-upstream.ps1` 即可确认全链路仍然通。
