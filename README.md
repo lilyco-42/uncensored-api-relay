@@ -14,6 +14,24 @@
 > 本机**不编译、不跑测试**。构建与验证只走 `.github/workflows/ci.yml`。
 > 运行用的二进制请从 CI Artifacts 或 Release 下载。
 
+## 快速开始（30 秒）
+
+1. **下载二进制**：从 [Releases](https://github.com/lilyco-42/uncensored-api-relay/releases)
+   或 CI Artifacts 拿 `uncensored-proxy.exe`（本机不编译，CI 已构建三平台）。
+2. **加载预设并启动**：
+   ```powershell
+   cd D:\demo\rust-api-proxy
+   . .\env-presets.ps1      # 设置 UPSTREAM_URL / MODEL_MAP / BIND_ADDR
+   .\uncensored-proxy.exe
+   ```
+3. **cc-switch 指向它**：新增 Provider，`ANTHROPIC_BASE_URL` 填 `http://127.0.0.1:8080`，
+   配置模板见 [cc-switch-providers.json](cc-switch-providers.json)。
+4. **验证**：`curl http://127.0.0.1:8080/health`
+
+上游还没启动时，把 `UPSTREAM_URL` 先指向 `https://httpbin.org/anything` 即可自测全链路。
+
+---
+
 ## 一、构建与验证：只走 GitHub Actions
 
 **本机不编译、不跑测试**。所有构建、格式化、lint、测试与交叉编译发布
