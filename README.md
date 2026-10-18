@@ -277,3 +277,27 @@ cc-switch 界面点一下 **Uncensored Relay** 即可启用；cc-switch 需重�
 
 > 注意 codex 侧用 `wire_api = "chat"` 而不是 `responses` —— 上游 vLLM 只提供
 > Chat Completions，用 responses 会 404。
+
+## 十一、已跑通的线上部署（2026-10-19）
+
+| 项 | 值 |
+|---|---|
+| 上游 | `https://poem-casio-lexmark-trips.trycloudflare.com` |
+| 模型 | `uncensored-27b` |
+| 无审查 | 已验证：暴力小说、脏话对白均照答，无拒绝 |
+| 速度 | ~20 tok/s（Tesla T4 × 2，TP=2，8192 上下文） |
+| 中转站 | `http://127.0.0.1:8080/v1` |
+| cc-switch | provider 名 `Uncensored Relay`（claude + codex 均已写入） |
+
+隧道地址每次重启都会变，重新获取：
+
+```bash
+curl "https://ntfy.sh/lilyco-unc27b-endpoint/json" | tail -n 2 | head -n 1
+```
+
+重启中转站（只改一个环境变量）：
+
+```powershell
+$env:UPSTREAM_URL = "https://<新隧道>.trycloudflare.com/v1"
+.\uncensored-proxy.exe
+```
