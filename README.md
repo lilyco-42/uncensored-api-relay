@@ -263,3 +263,17 @@ $env:UPSTREAM_URL = "https://<新-tunnel-id>.trycloudflare.com/v1"
 ```
 
 跑一遍 `verify-kaggle-upstream.ps1` 即可确认全链路仍然通。
+
+### 一键把中转站注册进 cc-switch
+
+拿到上游地址后跑一次，就会往 cc-switch 写入 `claude` 与 `codex` 两个 provider
+（写库前自动备份 `cc-switch.db`）：
+
+```powershell
+.\add-relay-provider.ps1 -Upstream https://<tunnel>.trycloudflare.com/v1
+```
+
+cc-switch 界面点一下 **Uncensored Relay** 即可启用；cc-switch 需重启才重读 DB。
+
+> 注意 codex 侧用 `wire_api = "chat"` 而不是 `responses` —— 上游 vLLM 只提供
+> Chat Completions，用 responses 会 404。
