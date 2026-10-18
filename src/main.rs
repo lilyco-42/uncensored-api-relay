@@ -202,12 +202,21 @@ async fn forward(
             })
             .to_string();
 
-            let mut resp = (StatusCode::BAD_GATEWAY, payload).into_response();
-            resp.headers_mut().insert(
-                axum::http::header::CONTENT_TYPE,
-                HeaderValue::from_static("application/json; charset=utf-8"),
-            );
-            resp
+            // 用 http_body::Full<Bytes> 明确声明"完整已知长度"的 body。
+            // 之前用 Body::from(String) / IntoResponse(String) 在 http:// 传输层
+            // 连接失败的场景下 body 会被丢弃（HTTPS 与所有成功路径均正常）。
+            let bytes = axum::body::Bytes::from(payload);
+            let len = bytes.len();
+
+            Response::builder()
+                .status(StatusCode::BAD_GATEWAY)
+                .header(
+                    axum::http::header::CONTENT_TYPE,
+                    HeaderValue::from_static("application/json; charset=utf-8"),
+                )
+                .header(axum::http::header::CONTENT_LENGTH, len)
+                .body(Body::from(bytes))
+                .unwrap_or_else(|_| StatusCode::BAD_GATEWAY.into_response())
         }
     }
 }
