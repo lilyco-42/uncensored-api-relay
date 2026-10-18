@@ -191,7 +191,27 @@ rust-api-proxy/
 │   └── deploy-lain42.sh          # 一键部署脚本
 ```
 
-## 九、接入的无审查上游
+## 九、已知限制：http:// 上游连接失败时错误体为空
+
+实测（axum 0.7 + hyper 0.14 + reqwest 0.11）：
+
+| 上游失败方式 | 502 是否带 JSON 错误体 |
+|---|---|
+| `https://` 连接被拒 / TLS 失败 | 带，含 error.message / error.type / error.upstream |
+| `http://` 连接被拒 / 超时 / DNS 失败 | 只返回裸 502（content-length: 0） |
+| 上游 URL 本身非法（坏端口/坏 scheme/相对地址） | 带，reqwest builder error |
+| 上游正常响应（含 4xx/5xx） | 完整透传上游 body |
+
+即只有 `http://` 的传输层连接失败这一种情况会丢 body。代码侧已尝试三种写法
+（(StatusCode, Json) 元组、Response::builder().body(Body::from(String))、
+Bytes + 显式 CONTENT_LENGTH），行为完全一致，判定为 hyper HTTP/1 在该场景下的
+传输层行为，非本 crate 逻辑问题。
+
+影响与规避：生产上游（Kaggle Cloudflare 隧道、NewAPI 面板）均为 https://，
+错误体正常返回，不影响使用。若必须用 http:// 上游，可在前面套一层
+Caddy/Nginx 反代并开 TLS，即可让错误体正常返回。
+
+## 十、接入的无审查上游
 
 待填入 `UPSTREAM_URL`。按前面的调研，目标是 Kaggle TPU v5e-8 跑的
 `llmfan46/Qwen3.8-27B-Uncensored-Heretic-Native-MTP-Preserved`（bf16，~130 tok/s），
