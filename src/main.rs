@@ -4,7 +4,7 @@
 
 use axum::{
     body::Body,
-    extract::State,
+    extract::{RawQuery, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{any, get},
@@ -93,16 +93,21 @@ async fn health_check(State(state): State<Arc<AppState>>) -> (StatusCode, axum::
     )
 }
 
-/// 通用转发：methods + path 后缀 + 可选的 body 改写
+/// 通用转发：methods + path 后缀 + query + 可选的 body 改写
 async fn forward(
     state: &Arc<AppState>,
     method: axum::http::Method,
     path_suffix: &str,
+    query: Option<&str>,
     headers: &HeaderMap,
     body: &str,
     rewrite: bool,
 ) -> Response {
-    let target = format!("{}/{}", state.upstream_url, path_suffix);
+    // 透传 query string，否则上游带参端点（如 /drip?delay=0.5）会 404
+    let target = match query {
+        Some(q) if !q.is_empty() => format!("{}/{}?{}", state.upstream_url, path_suffix, q),
+        _ => format!("{}/{}", state.upstream_url, path_suffix),
+    };
 
     // body 改写（模型名映射到无审查上游 ID）
     let effective_body: String = if rewrite && !body.is_empty() {
@@ -174,28 +179,58 @@ async fn forward(
 async fn proxy_chat(
     State(state): State<Arc<AppState>>,
     method: axum::http::Method,
+    RawQuery(query): RawQuery,
     headers: HeaderMap,
     body: String,
 ) -> Response {
-    forward(&state, method, "chat/completions", &headers, &body, true).await
+    forward(
+        &state,
+        method,
+        "chat/completions",
+        query.as_deref(),
+        &headers,
+        &body,
+        true,
+    )
+    .await
 }
 
 async fn proxy_messages(
     State(state): State<Arc<AppState>>,
     method: axum::http::Method,
+    RawQuery(query): RawQuery,
     headers: HeaderMap,
     body: String,
 ) -> Response {
-    forward(&state, method, "messages", &headers, &body, true).await
+    forward(
+        &state,
+        method,
+        "messages",
+        query.as_deref(),
+        &headers,
+        &body,
+        true,
+    )
+    .await
 }
 
 async fn proxy_models(
     State(state): State<Arc<AppState>>,
     method: axum::http::Method,
+    RawQuery(query): RawQuery,
     headers: HeaderMap,
     body: String,
 ) -> Response {
-    forward(&state, method, "models", &headers, &body, false).await
+    forward(
+        &state,
+        method,
+        "models",
+        query.as_deref(),
+        &headers,
+        &body,
+        false,
+    )
+    .await
 }
 
 impl AppState {
@@ -287,6 +322,27 @@ mod tests {
         assert_eq!(payload["stream"], true);
         assert_eq!(payload["temperature"], 0.7);
         assert!(payload["messages"].is_array());
+    }
+
+    #[test]
+    fn upstream_url_keeps_query_string() {
+        // 与 forward() 中的 URL 拼接逻辑一致：query 非空时必须透传
+        let base = "http://httpbin.org";
+        let suffix = "drip";
+        for (query, expected) in [
+            (
+                Some("delay=0.5&code=200"),
+                "http://httpbin.org/drip?delay=0.5&code=200",
+            ),
+            (Some(""), "http://httpbin.org/drip"),
+            (None, "http://httpbin.org/drip"),
+        ] {
+            let url = match query {
+                Some(q) if !q.is_empty() => format!("{}/{}?{}", base, suffix, q),
+                _ => format!("{}/{}", base, suffix),
+            };
+            assert_eq!(url, expected);
+        }
     }
 
     #[test]
