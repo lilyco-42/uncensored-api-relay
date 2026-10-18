@@ -2,3 +2,6 @@
 Cargo.lock.local
 *.log
 .env
+ccs.db
+*.db
+ccs-copy.db
