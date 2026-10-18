@@ -145,6 +145,13 @@ query string：**完整透传**。客户端 query 与 `UPSTREAM_URL` 自带 quer
 关键点：反代必须关缓冲，否则 SSE 流会被攒包延迟。
 Nginx 用 `proxy_buffering off`；Caddy 用 `flush_interval -1`。
 
+### lain42.top 实测结论
+
+本机 cc-switch 里已存在指向 `http://lain42.top:3000` 的 NewAPI 面板配置
+（claude / codex / gemini 三家共用同 key），但该端口当前返回 **502**，面板后端未起。
+完整探测过程、路径约定、两种接入姿势与密钥安全注意见
+[lain42-top-findings.md](lain42-top-findings.md)。
+
 ## 七、验证
 
 CI 是唯一验证入口。`cargo test` 覆盖 8 个单测：
@@ -171,10 +178,12 @@ CI 是唯一验证入口。`cargo test` 覆盖 8 个单测：
 rust-api-proxy/
 ├── Cargo.toml                    # 依赖 + release 优化
 ├── Cargo.lock
-├── src/main.rs                   # 中转站全部实现（约 290 行，含 9 个单测）
+├── src/main.rs                   # 中转站全部实现（约 290 行，含 10 个单测）
 ├── start-relay.ps1               # 一键启动（自动补 PATH）
 ├── cc-switch-providers.json      # cc-switch 两家 Provider 配置
 ├── .github/workflows/ci.yml  # CI：fmt + clippy + test + 3 平台构建
+├── env-presets.ps1               # 三套上游预设 + 模型映射
+├── lain42-top-findings.md      # lain42.top 实测与接入姿势
 ├── deploy/
 │   ├── uncensored-proxy.service  # systemd 单元
 │   ├── Caddyfile                 # Caddy 反代配置
