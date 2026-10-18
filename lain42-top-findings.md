@@ -48,6 +48,6 @@ $env:BIND_ADDR    = "127.0.0.1:8080"
 
 ## 注意
 
-cc-switch 里已有的 lain42.top key 形如 `sk-HkVuVY...`（只在本机 DB 出现），
+cc-switch 里已有的 lain42.top key 形如 `sk-HkVuV…（已脱敏）`（只在本机 DB 出现），
 若把 Rust 中转站部署到公网，**必须**换一个新 key 并在反代层加鉴权，
 不要把该 key 提交到任何仓库。
