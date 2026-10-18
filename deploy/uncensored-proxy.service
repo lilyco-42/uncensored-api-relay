@@ -1,0 +1,23 @@
+[Unit]
+Description=Rust Uncensored API Relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/uncensored-proxy
+Environment=UPSTREAM_URL=https://xxx.trycloudflare.com/v1
+Environment=MODEL_MAP=gpt-4=uncensored-27b,claude-sonnet-4=uncensored-27b,grok-4=uncensored-27b
+Environment=BIND_ADDR=127.0.0.1:8080
+ExecStart=/opt/uncensored-proxy/uncensored-proxy
+Restart=always
+RestartSec=3
+# 安全加固
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/uncensored-proxy
+
+[Install]
+WantedBy=multi-user.target

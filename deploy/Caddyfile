@@ -1,0 +1,21 @@
+# lain42.top -> Rust relay
+# Caddyfile
+# 注意：proxy_buffering off 是 SSE 流式的关键，不能省
+lain42.top {
+    encode zstd gzip
+
+    handle /v1/* {
+        reverse_proxy 127.0.0.1:8080 {
+            flush_interval -1
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    handle /health {
+        reverse_proxy 127.0.0.1:8080
+    }
+
+    handle {
+        respond "lain42.top uncensored relay" 200
+    }
+}
