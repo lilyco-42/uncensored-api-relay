@@ -156,14 +156,16 @@ async fn forward(
 
     match req.send().await {
         Ok(resp) => {
-            let status = StatusCode::from_u16(resp.status().as_u16())
-                .unwrap_or(StatusCode::BAD_GATEWAY);
+            let status =
+                StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
 
             // 先把响应头收集为完全 owned 的数据，借用即刻结束，再移动 resp 构造流
             let collected: Vec<(String, Vec<u8>)> = resp
                 .headers()
                 .iter()
-                .filter(|(name, _)| !matches!(name.as_str(), "content-encoding" | "transfer-encoding"))
+                .filter(|(name, _)| {
+                    !matches!(name.as_str(), "content-encoding" | "transfer-encoding")
+                })
                 .map(|(name, value)| (name.as_str().to_string(), value.as_bytes().to_vec()))
                 .collect();
 
@@ -178,17 +180,32 @@ async fn forward(
             }
 
             // 流式透传，SSE 打字机效果不丢包
-            let stream = resp.bytes_stream().map(|chunk| {
-                chunk.map_err(std::io::Error::other)
-            });
+            let stream = resp
+                .bytes_stream()
+                .map(|chunk| chunk.map_err(std::io::Error::other));
 
             (status, out_headers, Body::from_stream(stream)).into_response()
         }
-        Err(e) => (
-            StatusCode::BAD_GATEWAY,
-            axum::Json(json!({"error": {"message": format!("relay upstream error: {}", e), "type": "relay_error"}})),
-        )
-            .into_response(),
+        Err(e) => {
+            // 显式构造 JSON 错误响应。直接用 (StatusCode, Json) 元组时，
+            // 连接失败路径下实测 content-length 为 0（body 被丢弃），
+            // 客户端只看到裸 502，拿不到错误原因。
+            let payload = json!({
+                "error": {
+                    "message": format!("relay upstream error: {}", e),
+                    "type": "relay_error",
+                    "upstream": target
+                }
+            })
+            .to_string();
+
+            Response::builder()
+                .status(StatusCode::BAD_GATEWAY)
+                .header("content-type", "application/json; charset=utf-8")
+                .header("connection", "close")
+                .body(Body::from(payload))
+                .unwrap_or_else(|_| StatusCode::BAD_GATEWAY.into_response())
+        }
     }
 }
 
@@ -401,6 +418,26 @@ mod tests {
             compose("http://h/x?", "messages", None),
             "http://h/x/messages"
         );
+    }
+
+    #[test]
+    fn error_payload_exposes_cause_and_upstream() {
+        // 502 必须带可读错误体，客户端不能只看到裸状态码
+        let payload = json!({
+            "error": {
+                "message": "relay upstream error: boom",
+                "type": "relay_error",
+                "upstream": "http://h/v1"
+            }
+        })
+        .to_string();
+        let parsed: Value = serde_json::from_str(&payload).unwrap();
+        assert_eq!(parsed["error"]["type"], "relay_error");
+        assert_eq!(parsed["error"]["upstream"], "http://h/v1");
+        assert!(parsed["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("boom"));
     }
 
     #[test]
